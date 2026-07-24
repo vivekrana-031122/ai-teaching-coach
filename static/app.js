@@ -461,23 +461,37 @@ Please explain this code summary and guide me through what it does.
 }
 
 // Initial Greeting setup
-function initializeChat() {
+async function initializeChat() {
     chatHistory = [];
     chatMessages.innerHTML = "";
     
     const ownerToken = localStorage.getItem("jarvus_session_token");
     if (ownerToken) {
-        // Owner greeting
-        appendMessage("model", "Hey Vivek! Kaisa hai? Main tera personal teaching coach **Jarvus** hoon. Hum tere projects ke codes aur daily logs ko step-by-step seekhenge. Tu **'Teach Today's Update'** button par click kar sakta hai ya koi file load karke bol: *'Teach me this!'*");
-        activeTopicName.innerText = "No Active Topic";
-        updateSuggestionsForOwner();
-    } else {
-        // Public Visitor greeting
-        selectedLanguage = null;
-        appendMessage("model", "Hello! Vivek's Bilingual Assistant (Jarvus) here. Please pick your preferred language to start: **English**, **Hindi**, or **Hinglish**.");
-        activeTopicName.innerText = "Public Visitor Session";
-        updateSuggestionsForLanguages();
+        try {
+            const response = await fetch("/api/verify-session", {
+                method: "POST",
+                headers: {
+                    "X-Session-Token": ownerToken
+                }
+            });
+            if (response.ok) {
+                // Owner greeting
+                appendMessage("model", "Hey Vivek! Kaisa hai? Main tera personal teaching coach **Jarvus** hoon. Hum tere projects ke codes aur daily logs ko step-by-step seekhenge. Tu **'Teach Today's Update'** button par click kar sakta hai ya koi file load karke bol: *'Teach me this!'*");
+                activeTopicName.innerText = "No Active Topic";
+                updateSuggestionsForOwner();
+                return;
+            }
+        } catch (e) {
+            console.error("Owner session validation failed:", e);
+        }
     }
+    
+    // If validation fails or no token: Public Visitor greeting
+    localStorage.removeItem("jarvus_session_token");
+    selectedLanguage = null;
+    appendMessage("model", "Hello! Vivek's Bilingual Assistant (Jarvus) here. Please pick your preferred language to start: **English**, **Hindi**, or **Hinglish**.");
+    activeTopicName.innerText = "Public Visitor Session";
+    updateSuggestionsForLanguages();
 }
 
 function updateSuggestionsForLanguages() {
@@ -589,6 +603,11 @@ if (SpeechRecognition) {
     
     recognition.onerror = (event) => {
         console.error("Speech Recognition error:", event.error);
+        if (event.error === "not-allowed") {
+            appendMessage("model", "⚠️ **Microphone Access Denied:** Chrome side panel me microphone request block ho gayi hai. Is class tab (extension pane) ke left side me address bar me lock icon par click karke microphone allow kijiye, aur manifest permission confirm kijiye.");
+        } else {
+            appendMessage("model", `⚠️ **Speech Recognition Error:** ${event.error}`);
+        }
     };
 }
 

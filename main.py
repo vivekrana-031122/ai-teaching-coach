@@ -217,6 +217,10 @@ async def generate_live_status_report() -> str:
         
     return report
 
+@app.post("/api/verify-session")
+async def verify_session_endpoint(session: None = Depends(verify_session)):
+    return {"status": "valid"}
+
 @app.post("/api/chat")
 async def chat_endpoint(request: Request, chat_req: ChatRequest, role: str = Depends(get_current_user_role)):
     if not os.getenv("GEMINI_API_KEY"):
