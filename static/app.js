@@ -19,6 +19,25 @@ marked.setOptions({
     sanitize: false
 });
 
+// Helper: Get or Prompt for Access Passcode
+function getPasscode() {
+    let passcode = localStorage.getItem("jarvus_access_passcode");
+    if (!passcode) {
+        passcode = prompt("Enter Jarvus Access Passcode:");
+        if (passcode) {
+            localStorage.setItem("jarvus_access_passcode", passcode);
+        }
+    }
+    return passcode || "";
+}
+
+// Helper: Handle 401 Unauthorized (reset passcode)
+function handleUnauthorized() {
+    localStorage.removeItem("jarvus_access_passcode");
+    alert("Incorrect access passcode. Please try again.");
+    getPasscode();
+}
+
 // Helper: Append a message bubble to the chat feed
 function appendMessage(role, text) {
     const messageDiv = document.createElement("div");
@@ -78,16 +97,24 @@ async function sendChatMessage(userMessageText) {
     showLoadingIndicator();
     
     try {
+        const passcode = getPasscode();
         const response = await fetch("/api/chat", {
             method: "POST",
             headers: {
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "X-Access-Passcode": passcode
             },
             body: JSON.stringify({
                 message: userMessageText,
                 history: chatHistory
             })
         });
+
+        if (response.status === 401) {
+            removeLoadingIndicator();
+            handleUnauthorized();
+            return;
+        }
 
         if (!response.ok) {
             const errData = await response.json();
@@ -128,9 +155,25 @@ btnStarterLog.addEventListener("click", async () => {
     showLoadingIndicator();
 
     try {
+        const passcode = getPasscode();
         // 1. Fetch latest learning log entry from backend
-        const response = await fetch("/api/starter-log", { method: "POST" });
-        if (!response.ok) throw new Error("Failed to retrieve today's learning log from GitHub.");
+        const response = await fetch("/api/starter-log", { 
+            method: "POST",
+            headers: {
+                "X-Access-Passcode": passcode
+            }
+        });
+        
+        if (response.status === 401) {
+            removeLoadingIndicator();
+            handleUnauthorized();
+            return;
+        }
+
+        if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.detail || "Failed to retrieve today's learning log from GitHub.");
+        }
         
         const data = await response.json();
         removeLoadingIndicator();
@@ -163,19 +206,33 @@ btnLoadFile.addEventListener("click", async () => {
     showLoadingIndicator();
 
     try {
+        const passcode = getPasscode();
         // 1. Fetch file content from backend
         const response = await fetch("/api/fetch-repo-file", {
             method: "POST",
             headers: {
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "X-Access-Passcode": passcode
             },
             body: JSON.stringify({ repo, path })
         });
 
-        if (!response.ok) throw new Error(`Failed to load file content for ${path}.`);
+        if (response.status === 401) {
+            removeLoadingIndicator();
+            handleUnauthorized();
+            return;
+        }
+
+        if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.detail || `Failed to load file content for ${path}.`);
+        }
         
         const data = await response.json();
         removeLoadingIndicator();
+
+        // UI Confirmation: Show filename and first line fetched!
+        appendMessage("model", `📂 **Successfully fetched from GitHub!**\n* **File:** \`${data.filename}\`\n* **First Line:** \`${data.first_line || "(empty)"}\``);
 
         // 2. Prepare prompt for teaching the code file
         const teachPrompt = `
@@ -191,7 +248,7 @@ Please start teaching this code to me line-by-line. Focus on what each block/lin
 
     } catch (error) {
         removeLoadingIndicator();
-        appendMessage("model", `⚠️ **Error:** ${error.message}`);
+        appendMessage("model", `⚠️ **Error:** Yeh file mujhe nahi mili, path check karo. (${error.message})`);
     }
 });
 

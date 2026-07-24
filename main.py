@@ -1,11 +1,12 @@
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import google.generativeai as genai
 import httpx
 from dotenv import load_dotenv
+import re
 
 # Load local environment variables for development
 load_dotenv()
@@ -15,7 +16,13 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-app = FastAPI(title="AI Teaching Coach - Agent 1")
+app = FastAPI(title="AI Teaching Coach - Jarvus")
+
+ACCESS_PASSCODE = os.getenv("ACCESS_PASSCODE", "Jarvus2026")
+
+async def verify_passcode(x_access_passcode: Optional[str] = Header(None)):
+    if ACCESS_PASSCODE and x_access_passcode != ACCESS_PASSCODE:
+        raise HTTPException(status_code=401, detail="Invalid or missing access passcode.")
 
 # System instruction for the Gemini Model
 SYSTEM_INSTRUCTION = """
@@ -44,7 +51,7 @@ class RepoFileRequest(BaseModel):
     path: str
 
 @app.post("/api/chat")
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest, passcode: None = Depends(verify_passcode)):
     if not os.getenv("GEMINI_API_KEY"):
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured in the environment variables.")
         
@@ -56,7 +63,6 @@ async def chat_endpoint(request: ChatRequest):
         )
         
         # Convert request history format to Gemini SDK format
-        # Gemini SDK expects: [{'role': 'user', 'parts': ['...']}, {'role': 'model', 'parts': ['...']}]
         gemini_history = []
         for msg in request.history:
             gemini_history.append({
@@ -76,7 +82,7 @@ async def chat_endpoint(request: ChatRequest):
         raise HTTPException(status_code=500, detail=f"Failed to communicate with Gemini: {str(e)}")
 
 @app.post("/api/starter-log")
-async def fetch_starter_log():
+async def fetch_starter_log(passcode: None = Depends(verify_passcode)):
     # Automatically fetch the daily learning log from GitHub
     url = "https://raw.githubusercontent.com/vivekrana-031122/vivekrana-031122/main/LEARNING_LOG.md"
     try:
@@ -88,13 +94,10 @@ async def fetch_starter_log():
             content = resp.text
             
             # Simple parser to find the most recent entry in LEARNING_LOG.md
-            # Learning logs start with "## 📅 YYYY-MM-DD"
             matches = re.split(r"## 📅", content)
             if len(matches) < 2:
-                # Fallback to returning the entire file if parser fails
                 return {"log_content": content}
                 
-            # The first block after splitting is the file header. The second block is the latest entry.
             latest_entry = "## 📅" + matches[1].strip()
             return {"log_content": latest_entry}
             
@@ -103,8 +106,15 @@ async def fetch_starter_log():
         raise HTTPException(status_code=500, detail=f"Error retrieving learning log: {str(e)}")
 
 @app.post("/api/fetch-repo-file")
-async def fetch_repo_file(request: RepoFileRequest):
-    # Fetch a specific file from a public repo
+async def fetch_repo_file(request: RepoFileRequest, passcode: None = Depends(verify_passcode)):
+    # 1. Input validation & sanitization
+    if not re.match(r"^[a-zA-Z0-9\-_]+$", request.repo):
+        raise HTTPException(status_code=400, detail="Invalid repository name format.")
+        
+    if ".." in request.path or request.path.startswith("/") or request.path.startswith("\\"):
+        raise HTTPException(status_code=400, detail="Invalid file path format.")
+        
+    # 2. Fetch the specific file from the hardcoded user's repo (cannot access other user repos)
     url = f"https://raw.githubusercontent.com/vivekrana-031122/{request.repo}/main/{request.path}"
     try:
         async with httpx.AsyncClient() as client:
@@ -116,14 +126,26 @@ async def fetch_repo_file(request: RepoFileRequest):
                 
             if resp.status_code != 200:
                 raise HTTPException(status_code=resp.status_code, detail=f"File {request.path} not found in repo {request.repo}.")
-                
-            return {"content": resp.text}
+            
+            # 3. Extract metadata for UI verification
+            first_line = ""
+            lines = resp.text.splitlines()
+            # Find the first non-empty line
+            for line in lines:
+                if line.strip():
+                    first_line = line
+                    break
+                    
+            return {
+                "content": resp.text,
+                "first_line": first_line,
+                "filename": os.path.basename(request.path)
+            }
+    except HTTPException as he:
+        raise he
     except Exception as e:
         print(f"Error fetching repo file: {e}")
         raise HTTPException(status_code=500, detail=f"Error retrieving file content: {str(e)}")
-
-# Regex import is required for starter-log parser
-import re
 
 # Mount static files to serve frontend
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
