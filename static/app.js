@@ -631,5 +631,49 @@ btnClearChat.addEventListener("click", () => {
     initializeChat();
 });
 
+// Listener: Receive parent window postMessage context from Chrome Extension
+let lastDetectedFile = null;
+window.addEventListener("message", async (event) => {
+    if (event.data && event.data.action === "current_file") {
+        const { repo, path } = event.data;
+        const fileKey = `${repo}/${path}`;
+        
+        if (lastDetectedFile === fileKey) return;
+        lastDetectedFile = fileKey;
+        
+        // Append visual helper invitation card in chat feed
+        const cardDiv = document.createElement("div");
+        cardDiv.className = "message model";
+        cardDiv.innerHTML = `
+            <div class="message-avatar">
+                <i class="fa-solid fa-robot"></i>
+            </div>
+            <div class="message-content" style="background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.3);">
+                <p style="margin: 0 0 6px 0; font-weight: bold; color: #a855f7;">🔍 GitHub Code View Detected!</p>
+                <p style="margin: 0 0 8px 0; font-size: 13px;">Aap GitHub par <code>${repo}/${path}</code> dekh rahe hain. Kya is file ko study karna hai?</p>
+                <button id="btn-quick-study" class="suggestion-tag" style="background-color: var(--primary); color: white; border: none; padding: 6px 12px; cursor: pointer; border-radius: 4px; font-size: 12px; font-weight: 500;">
+                    🚀 Load & Teach this File
+                </button>
+            </div>
+        `;
+        chatMessages.appendChild(cardDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        
+        cardDiv.querySelector("#btn-quick-study").addEventListener("click", async () => {
+            cardDiv.remove();
+            appendMessage("user", `Study detected file: \`${path}\` from \`${repo}\``);
+            
+            const token = localStorage.getItem("jarvus_session_token");
+            if (token === null) {
+                // Public visitor asks for code ➡️ Gatekeeper mode
+                await handleSubmission(`Jarvus, ${repo} repo mein ${path} kholo aur samjhao`);
+            } else {
+                // Owner ➡️ load and study directly
+                await loadAndTeachFile(repo, path);
+            }
+        });
+    }
+});
+
 // Run greeting on page load
 initializeChat();
