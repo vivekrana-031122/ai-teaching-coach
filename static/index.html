@@ -83,9 +83,14 @@
                     <span class="topic-label">Currently Studying:</span>
                     <span id="active-topic-name">Hacker News Dashboard & SQLite Wrapper</span>
                 </div>
-                <button id="btn-clear-chat" class="btn-icon" title="Clear Conversation">
-                    <i class="fa-solid fa-trash-can"></i>
-                </button>
+                <div class="header-actions" style="display: flex; gap: 8px;">
+                    <button id="btn-voice-toggle" class="btn-icon" title="Mute/Unmute Voice">
+                        <i class="fa-solid fa-volume-xmark" id="voice-icon"></i>
+                    </button>
+                    <button id="btn-clear-chat" class="btn-icon" title="Clear Conversation">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
             </header>
 
             <!-- Chat Messages Feed -->
@@ -111,6 +116,9 @@
             <!-- Chat Input Footer -->
             <footer class="chat-footer">
                 <form id="chat-form" class="chat-form">
+                    <button type="button" id="btn-mic-toggle" class="btn-icon mic-btn" title="Speak to Jarvus">
+                        <i class="fa-solid fa-microphone" id="mic-icon"></i>
+                    </button>
                     <input type="text" id="chat-input" class="chat-input-field" placeholder="Ask anything about your code..." autocomplete="off" />
                     <button type="submit" class="chat-send-btn">
                         <i class="fa-solid fa-paper-plane"></i>

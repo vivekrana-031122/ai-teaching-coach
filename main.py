@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 import re
 import secrets
 import time
+import json
 
 # Load local environment variables for development
 load_dotenv()
@@ -199,6 +200,56 @@ async def fetch_repo_file(request: RepoFileRequest, session: None = Depends(veri
     except Exception as e:
         print(f"Error fetching repo file: {e}")
         raise HTTPException(status_code=500, detail=f"Error retrieving file content: {str(e)}")
+
+class IntentRequest(BaseModel):
+    text: str
+
+@app.post("/api/parse-intent")
+async def parse_intent_endpoint(request: IntentRequest, session: None = Depends(verify_session)):
+    if not os.getenv("GEMINI_API_KEY"):
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
+        
+    prompt = f"""
+    You are an intent parser for a developer chatbot named Jarvus.
+    Your job is to parse a spoken Hinglish/English sentence and extract the structured intent.
+    You must output ONLY a valid JSON object with the following fields:
+    - "action": "open_file", "teach_today", or "general_question"
+    - "repo": extracted repository name (or null if not mentioned or ambiguous)
+    - "file_path": extracted file path/name (or null if not mentioned or ambiguous)
+    - "clarification_needed": boolean (true if repo or file_path is mentioned but ambiguous/unclear/requires verification, e.g. "open db helper", "open zepto repo")
+    - "clarification_prompt": a friendly spoken Hinglish message asking for clarification (or null if not needed)
+
+    Spoken Sentence: "{request.text}"
+    
+    Respond with ONLY the JSON object. Do not include markdown formatting tags like ```json.
+    """
+    
+    try:
+        model = genai.GenerativeModel(model_name="gemini-flash-latest")
+        response = model.generate_content(prompt)
+        text_resp = response.text.strip()
+        
+        # Clean up any markdown code block wrapper if present
+        if text_resp.startswith("```"):
+            lines = text_resp.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            text_resp = "\n".join(lines).strip()
+            
+        parsed_json = json.loads(text_resp)
+        return parsed_json
+    except Exception as e:
+        print(f"Error parsing intent: {e}")
+        # Fallback to general question on parse failure
+        return {
+            "action": "general_question",
+            "repo": None,
+            "file_path": None,
+            "clarification_needed": False,
+            "clarification_prompt": None
+        }
 
 # Mount static files to serve frontend
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
