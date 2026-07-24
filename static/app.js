@@ -121,7 +121,14 @@ function showLoadingIndicator() {
 
     const contentDiv = document.createElement("div");
     contentDiv.classList.add("message-content");
-    contentDiv.innerHTML = `<p style="color: var(--text-muted);"><i class="fa-solid fa-circle-notch fa-spin"></i> Jarvus is typing...</p>`;
+    contentDiv.innerHTML = `
+        <div class="typing-dots" style="display: flex; gap: 4px; align-items: center; height: 20px;">
+            <span style="color: var(--text-muted); font-size: 13.5px; margin-right: 6px;">Jarvus is typing</span>
+            <div class="dot" style="width: 6px; height: 6px; border-radius: 50%; background-color: var(--text-muted); animation: bounce-dot 1.4s infinite ease-in-out both;"></div>
+            <div class="dot" style="width: 6px; height: 6px; border-radius: 50%; background-color: var(--text-muted); animation: bounce-dot 1.4s infinite ease-in-out both; animation-delay: 0.16s;"></div>
+            <div class="dot" style="width: 6px; height: 6px; border-radius: 50%; background-color: var(--text-muted); animation: bounce-dot 1.4s infinite ease-in-out both; animation-delay: 0.32s;"></div>
+        </div>
+    `;
 
     loadingDiv.appendChild(avatarDiv);
     loadingDiv.appendChild(contentDiv);

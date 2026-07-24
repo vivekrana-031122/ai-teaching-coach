@@ -6,27 +6,71 @@
     width: 60px;
     height: 60px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #6366f1, #a855f7);
-    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+    background: linear-gradient(135deg, #a855f7, #06b6d4);
+    box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     z-index: 999999;
-    transition: transform 0.2s, box-shadow 0.2s;
     border: none;
     outline: none;
+    opacity: 0;
+    transform: scale(0.3) translateY(50px);
+    animation: jarvus-entrance 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards, jarvus-glow 2.0s infinite alternate;
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease;
 }
 
 .jarvus-float-btn:hover {
-    transform: scale(1.05);
-    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.6);
+    transform: scale(1.1) rotate(5deg);
+    box-shadow: 0 8px 25px rgba(168, 85, 247, 0.7);
 }
 
 .jarvus-float-btn svg {
     width: 32px;
     height: 32px;
-    fill: #ffffff;
+}
+
+/* Tooltip */
+.jarvus-tooltip {
+    position: absolute;
+    bottom: 75px;
+    right: 5px;
+    background-color: #1e293b;
+    color: #f8fafc;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    border: 1px solid #334155;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(10px);
+    transition: opacity 0.2s, transform 0.2s;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.jarvus-float-btn:hover .jarvus-tooltip {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+@keyframes jarvus-entrance {
+    100% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+@keyframes jarvus-glow {
+    0% {
+        box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4), 0 0 0 0px rgba(6, 182, 212, 0.2);
+    }
+    100% {
+        box-shadow: 0 6px 22px rgba(168, 85, 247, 0.7), 0 0 10px 4px rgba(6, 182, 212, 0.4);
+    }
 }
 
 /* Chat Drawer Panel */

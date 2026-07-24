@@ -12,10 +12,19 @@
     // 1. Create floating button
     const floatBtn = document.createElement("button");
     floatBtn.className = "jarvus-float-btn";
-    floatBtn.title = "Ask Jarvus";
     floatBtn.innerHTML = `
-        <svg viewBox="0 0 24 24">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H7c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.04-.42 1.99-1.07 2.75z"/>
+        <div class="jarvus-tooltip">Chat with Jarvus 🤖</div>
+        <svg viewBox="0 0 100 100" style="width: 32px; height: 32px;">
+            <circle cx="50" cy="50" r="45" fill="none" stroke="url(#jarvus-grad)" stroke-width="6" />
+            <path d="M40 30h20v25c0 8.3-6.7 15-15 15s-15-6.7-15-15h6c0 5 4 9 9 9s9-4 9-9V36H40V30z" fill="url(#jarvus-grad)" />
+            <circle cx="43" cy="45" r="4" fill="#00f2fe" />
+            <circle cx="57" cy="45" r="4" fill="#00f2fe" />
+            <defs>
+                <linearGradient id="jarvus-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#a855f7" />
+                    <stop offset="100%" stop-color="#06b6d4" />
+                </linearGradient>
+            </defs>
         </svg>
     `;
     root.appendChild(floatBtn);
