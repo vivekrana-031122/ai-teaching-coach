@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
@@ -7,6 +7,8 @@ import google.generativeai as genai
 import httpx
 from dotenv import load_dotenv
 import re
+import secrets
+import time
 
 # Load local environment variables for development
 load_dotenv()
@@ -18,11 +20,62 @@ if GEMINI_API_KEY:
 
 app = FastAPI(title="AI Teaching Coach - Jarvus")
 
-ACCESS_PASSCODE = os.getenv("ACCESS_PASSCODE", "Jarvus2026")
+# Security states
+FAILED_ATTEMPTS = {}  # IP -> {"count": int, "lockout_until": float}
+ACTIVE_SESSIONS = {}  # Token -> expiration_timestamp
 
-async def verify_passcode(x_access_passcode: Optional[str] = Header(None)):
-    if ACCESS_PASSCODE and x_access_passcode != ACCESS_PASSCODE:
-        raise HTTPException(status_code=401, detail="Invalid or missing access passcode.")
+ACCESS_PASSCODE = os.getenv("ACCESS_PASSCODE")
+if not ACCESS_PASSCODE:
+    # Generate a random passcode for safe fallback
+    ACCESS_PASSCODE = secrets.token_hex(16)
+    print("WARNING: ACCESS_PASSCODE environment variable is not set!")
+    print(f"Generated secure temporary passcode for this session: {ACCESS_PASSCODE}")
+
+async def verify_session(x_session_token: Optional[str] = Header(None)):
+    if not x_session_token:
+        raise HTTPException(status_code=401, detail="Session token missing.")
+    
+    exp_time = ACTIVE_SESSIONS.get(x_session_token)
+    if not exp_time or time.time() > exp_time:
+        if x_session_token in ACTIVE_SESSIONS:
+            del ACTIVE_SESSIONS[x_session_token]
+        raise HTTPException(status_code=401, detail="Session expired or invalid.")
+
+class LoginRequest(BaseModel):
+    passcode: str
+
+@app.post("/api/login")
+async def login_endpoint(request: Request, login_data: LoginRequest):
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    now = time.time()
+    
+    ip_info = FAILED_ATTEMPTS.get(client_ip, {"count": 0, "lockout_until": 0.0})
+    if now < ip_info["lockout_until"]:
+        retry_after = int(ip_info["lockout_until"] - now)
+        raise HTTPException(
+            status_code=403,
+            detail=f"Too many failed attempts. Locked out. Try again in {retry_after} seconds."
+        )
+        
+    if login_data.passcode == ACCESS_PASSCODE:
+        # Success - Reset lockout counters
+        FAILED_ATTEMPTS[client_ip] = {"count": 0, "lockout_until": 0.0}
+        # Issue a session token valid for 1 hour
+        session_token = secrets.token_hex(24)
+        ACTIVE_SESSIONS[session_token] = time.time() + 3600
+        return {"session_token": session_token}
+    else:
+        # Failure
+        count = ip_info["count"] + 1
+        lockout_until = 0.0
+        if count >= 5:
+            lockout_until = time.time() + 300  # 5 minutes lockout
+            detail_msg = "Too many failed attempts. Locked out for 5 minutes."
+        else:
+            detail_msg = f"Invalid passcode. {5 - count} attempts remaining."
+            
+        FAILED_ATTEMPTS[client_ip] = {"count": count, "lockout_until": lockout_until}
+        raise HTTPException(status_code=401, detail=detail_msg)
 
 # System instruction for the Gemini Model
 SYSTEM_INSTRUCTION = """
@@ -51,7 +104,7 @@ class RepoFileRequest(BaseModel):
     path: str
 
 @app.post("/api/chat")
-async def chat_endpoint(request: ChatRequest, passcode: None = Depends(verify_passcode)):
+async def chat_endpoint(request: ChatRequest, session: None = Depends(verify_session)):
     if not os.getenv("GEMINI_API_KEY"):
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured in the environment variables.")
         
@@ -82,7 +135,7 @@ async def chat_endpoint(request: ChatRequest, passcode: None = Depends(verify_pa
         raise HTTPException(status_code=500, detail=f"Failed to communicate with Gemini: {str(e)}")
 
 @app.post("/api/starter-log")
-async def fetch_starter_log(passcode: None = Depends(verify_passcode)):
+async def fetch_starter_log(session: None = Depends(verify_session)):
     # Automatically fetch the daily learning log from GitHub
     url = "https://raw.githubusercontent.com/vivekrana-031122/vivekrana-031122/main/LEARNING_LOG.md"
     try:
@@ -106,7 +159,7 @@ async def fetch_starter_log(passcode: None = Depends(verify_passcode)):
         raise HTTPException(status_code=500, detail=f"Error retrieving learning log: {str(e)}")
 
 @app.post("/api/fetch-repo-file")
-async def fetch_repo_file(request: RepoFileRequest, passcode: None = Depends(verify_passcode)):
+async def fetch_repo_file(request: RepoFileRequest, session: None = Depends(verify_session)):
     # 1. Input validation & sanitization
     if not re.match(r"^[a-zA-Z0-9\-_]+$", request.repo):
         raise HTTPException(status_code=400, detail="Invalid repository name format.")

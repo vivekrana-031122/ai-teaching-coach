@@ -19,23 +19,47 @@ marked.setOptions({
     sanitize: false
 });
 
-// Helper: Get or Prompt for Access Passcode
-function getPasscode() {
-    let passcode = localStorage.getItem("jarvus_access_passcode");
-    if (!passcode) {
-        passcode = prompt("Enter Jarvus Access Passcode:");
-        if (passcode) {
-            localStorage.setItem("jarvus_access_passcode", passcode);
-        }
+// Helper: Retrieve active token or prompt user to login
+async function getSessionToken() {
+    let token = localStorage.getItem("jarvus_session_token");
+    if (!token) {
+        const passcode = prompt("Enter Jarvus Passcode:");
+        if (!passcode) return null;
+        token = await loginWithPasscode(passcode);
     }
-    return passcode || "";
+    return token;
 }
 
-// Helper: Handle 401 Unauthorized (reset passcode)
+// Helper: Call login endpoint and cache token on success
+async function loginWithPasscode(passcode) {
+    try {
+        const response = await fetch("/api/login", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ passcode })
+        });
+        
+        if (!response.ok) {
+            const errData = await response.json();
+            alert(`Login failed: ${errData.detail}`);
+            return null;
+        }
+        
+        const data = await response.json();
+        localStorage.setItem("jarvus_session_token", data.session_token);
+        return data.session_token;
+    } catch (error) {
+        alert(`Network error during login: ${error.message}`);
+        return null;
+    }
+}
+
+// Helper: Clear cached token when unauthorized
 function handleUnauthorized() {
-    localStorage.removeItem("jarvus_access_passcode");
-    alert("Incorrect access passcode. Please try again.");
-    getPasscode();
+    localStorage.removeItem("jarvus_session_token");
+    alert("Session expired or unauthorized. Please re-enter your passcode.");
 }
 
 // Helper: Append a message bubble to the chat feed
@@ -97,12 +121,17 @@ async function sendChatMessage(userMessageText) {
     showLoadingIndicator();
     
     try {
-        const passcode = getPasscode();
+        const token = await getSessionToken();
+        if (!token) {
+            removeLoadingIndicator();
+            return;
+        }
+        
         const response = await fetch("/api/chat", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "X-Access-Passcode": passcode
+                "X-Session-Token": token
             },
             body: JSON.stringify({
                 message: userMessageText,
@@ -155,12 +184,16 @@ btnStarterLog.addEventListener("click", async () => {
     showLoadingIndicator();
 
     try {
-        const passcode = getPasscode();
+        const token = await getSessionToken();
+        if (!token) {
+            removeLoadingIndicator();
+            return;
+        }
         // 1. Fetch latest learning log entry from backend
         const response = await fetch("/api/starter-log", { 
             method: "POST",
             headers: {
-                "X-Access-Passcode": passcode
+                "X-Session-Token": token
             }
         });
         
@@ -206,13 +239,17 @@ btnLoadFile.addEventListener("click", async () => {
     showLoadingIndicator();
 
     try {
-        const passcode = getPasscode();
+        const token = await getSessionToken();
+        if (!token) {
+            removeLoadingIndicator();
+            return;
+        }
         // 1. Fetch file content from backend
         const response = await fetch("/api/fetch-repo-file", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "X-Access-Passcode": passcode
+                "X-Session-Token": token
             },
             body: JSON.stringify({ repo, path })
         });
