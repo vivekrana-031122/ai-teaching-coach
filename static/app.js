@@ -4,6 +4,8 @@ let isVoiceMuted = true;
 let currentUtterance = null;
 let recognition = null;
 let isListening = false;
+let selectedLanguage = null;
+let approvalPollInterval = null;
 
 // DOM Elements
 const chatMessages = document.getElementById("chat-messages");
@@ -15,7 +17,7 @@ const selectRepo = document.getElementById("select-repo");
 const inputFile = document.getElementById("input-file-path");
 const activeTopicName = document.getElementById("active-topic-name");
 const btnClearChat = document.getElementById("btn-clear-chat");
-const suggestionTags = document.querySelectorAll(".suggestion-tag");
+const suggestionTagsContainer = document.querySelector(".chat-suggestions");
 
 // Voice Elements
 const btnVoiceToggle = document.getElementById("btn-voice-toggle");
@@ -59,6 +61,9 @@ async function loginWithPasscode(passcode) {
         
         const data = await response.json();
         localStorage.setItem("jarvus_session_token", data.session_token);
+        
+        // Success! Reload greeting for Owner
+        initializeChat();
         return data.session_token;
     } catch (error) {
         alert(`Network error during login: ${error.message}`);
@@ -70,6 +75,7 @@ async function loginWithPasscode(passcode) {
 function handleUnauthorized() {
     localStorage.removeItem("jarvus_session_token");
     alert("Session expired or unauthorized. Please re-enter your passcode.");
+    initializeChat();
 }
 
 // Helper: Append a message bubble to the chat feed
@@ -164,21 +170,18 @@ async function sendChatMessage(userMessageText) {
     showLoadingIndicator();
     
     try {
-        const token = await getSessionToken();
-        if (!token) {
-            removeLoadingIndicator();
-            return;
-        }
+        const token = localStorage.getItem("jarvus_session_token"); // Pull silently
         
         const response = await fetch("/api/chat", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "X-Session-Token": token
+                ...(token ? { "X-Session-Token": token } : {})
             },
             body: JSON.stringify({
                 message: userMessageText,
-                history: chatHistory
+                history: chatHistory,
+                language: selectedLanguage
             })
         });
 
@@ -200,8 +203,13 @@ async function sendChatMessage(userMessageText) {
         chatHistory.push({ role: "user", parts: [userMessageText] });
         chatHistory.push({ role: "model", parts: [data.response] });
         
-        // Render response (triggers speakText internally)
+        // Render response
         appendMessage("model", data.response);
+
+        // Check if Gatekeeper triggered permission flow
+        if (data.gatekeeper_triggered) {
+            startApprovalPolling(data.repo, data.file_path);
+        }
 
     } catch (error) {
         removeLoadingIndicator();
@@ -324,21 +332,27 @@ async function handleSubmission(text) {
         return;
     }
     
+    // Check if lang needs selection
+    if (!selectedLanguage && localStorage.getItem("jarvus_session_token") === null) {
+        if (["english", "hindi", "hinglish"].includes(lowerText)) {
+            selectedLanguage = lowerText;
+            appendMessage("model", `Language set to **${text}**! Kaise madad karu aapki? Ask me about Vivek's skills, bio, or summaries of what he has built.`);
+            updateSuggestionsForVisitor();
+            return;
+        }
+    }
+    
     showLoadingIndicator();
     
     try {
-        const token = await getSessionToken();
-        if (!token) {
-            removeLoadingIndicator();
-            return;
-        }
+        const token = localStorage.getItem("jarvus_session_token");
         
         // 1. Send text to backend parser to determine structured intent
         const parseResp = await fetch("/api/parse-intent", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "X-Session-Token": token
+                ...(token ? { "X-Session-Token": token } : {})
             },
             body: JSON.stringify({ text })
         });
@@ -355,13 +369,23 @@ async function handleSubmission(text) {
         
         // 2. Perform action based on parsed intent
         if (parsed.action === "open_file") {
-            if (parsed.clarification_needed) {
-                appendMessage("model", parsed.clarification_prompt);
+            if (token === null) {
+                // Public Visitor asking for code ➡️ Gatekeeper approval flow
+                await sendChatMessage(text);
             } else {
-                await loadAndTeachFile(parsed.repo, parsed.file_path);
+                // Owner Mode ➡️ Direct fetch
+                if (parsed.clarification_needed) {
+                    appendMessage("model", parsed.clarification_prompt);
+                } else {
+                    await loadAndTeachFile(parsed.repo, parsed.file_path);
+                }
             }
         } else if (parsed.action === "teach_today") {
-            await loadAndTeachStarterLog();
+            if (token === null) {
+                appendMessage("model", "⚠️ **Access Denied:** Starter log access require Owner permissions. Please log in first.");
+            } else {
+                await loadAndTeachStarterLog();
+            }
         } else {
             // general_question
             await sendChatMessage(text);
@@ -372,6 +396,119 @@ async function handleSubmission(text) {
         console.warn("Intent router fallback to standard chat:", error);
         await sendChatMessage(text);
     }
+}
+
+// Polling pipeline for Gatekeeper Mode
+function startApprovalPolling(repo, path) {
+    if (approvalPollInterval) clearInterval(approvalPollInterval);
+    
+    approvalPollInterval = setInterval(async () => {
+        try {
+            const response = await fetch("/api/check-approval", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ repo, path })
+            });
+            if (response.ok) {
+                const data = await response.json();
+                if (data.status === "approved") {
+                    clearInterval(approvalPollInterval);
+                    appendMessage("model", "🎉 **Vivek has approved the request!** Access granted.");
+                    
+                    // Public visitors can fetch file contents directly after approval!
+                    showLoadingIndicator();
+                    const fetchResponse = await fetch("/api/fetch-repo-file", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ repo, path })
+                    });
+                    
+                    if (fetchResponse.ok) {
+                        const fileData = await fetchResponse.json();
+                        removeLoadingIndicator();
+                        appendMessage("model", `📂 **Approved code fetched!**\n* **File:** \`${fileData.filename}\`\n* **First Line:** \`${fileData.first_line || "(empty)"}\``);
+                        
+                        // Start teaching
+                        const teachPrompt = `
+I want to study the file \`${path}\` in the repository \`${repo}\`. Here is the source code content:
+
+\`\`\`python
+${fileData.content}
+\`\`\`
+
+Please explain this code summary and guide me through what it does.
+`;
+                        await sendChatMessage(teachPrompt);
+                    } else {
+                        removeLoadingIndicator();
+                    }
+                } else if (data.status === "denied") {
+                    clearInterval(approvalPollInterval);
+                    appendMessage("model", "❌ **Vivek has denied the request.** Access refused.");
+                }
+            }
+        } catch (e) {
+            console.error("Error polling approval:", e);
+        }
+    }, 5000);
+}
+
+// Initial Greeting setup
+function initializeChat() {
+    chatHistory = [];
+    chatMessages.innerHTML = "";
+    
+    const ownerToken = localStorage.getItem("jarvus_session_token");
+    if (ownerToken) {
+        // Owner greeting
+        appendMessage("model", "Hey Vivek! Kaisa hai? Main tera personal teaching coach **Jarvus** hoon. Hum tere projects ke codes aur daily logs ko step-by-step seekhenge. Tu **'Teach Today's Update'** button par click kar sakta hai ya koi file load karke bol: *'Teach me this!'*");
+        activeTopicName.innerText = "No Active Topic";
+        updateSuggestionsForOwner();
+    } else {
+        // Public Visitor greeting
+        selectedLanguage = null;
+        appendMessage("model", "Hello! Vivek's Bilingual Assistant (Jarvus) here. Please pick your preferred language to start: **English**, **Hindi**, or **Hinglish**.");
+        activeTopicName.innerText = "Public Visitor Session";
+        updateSuggestionsForLanguages();
+    }
+}
+
+function updateSuggestionsForLanguages() {
+    suggestionTagsContainer.innerHTML = `
+        <button class="suggestion-tag" data-msg="English">English</button>
+        <button class="suggestion-tag" data-msg="Hindi">Hindi</button>
+        <button class="suggestion-tag" data-msg="Hinglish">Hinglish</button>
+    `;
+    hookSuggestionClicks();
+}
+
+function updateSuggestionsForVisitor() {
+    suggestionTagsContainer.innerHTML = `
+        <button class="suggestion-tag" data-msg="Tell me about Vivek's background.">About Vivek</button>
+        <button class="suggestion-tag" data-msg="What projects has Vivek built?">Summarize Projects</button>
+        <button class="suggestion-tag" data-msg="What ML/AI skills does Vivek have?">Skills & Tech Stack</button>
+    `;
+    hookSuggestionClicks();
+}
+
+function updateSuggestionsForOwner() {
+    suggestionTagsContainer.innerHTML = `
+        <button class="suggestion-tag" data-msg="Explain db_helper.py's fallback logic.">Explain SQLite Fallback</button>
+        <button class="suggestion-tag" data-msg="Jarvus, report do">Live Build Status Report</button>
+        <button class="suggestion-tag" data-msg="security check log kya hai?">Check Security logs</button>
+    `;
+    hookSuggestionClicks();
+}
+
+function hookSuggestionClicks() {
+    const tags = document.querySelectorAll(".suggestion-tag");
+    tags.forEach(tag => {
+        tag.addEventListener("click", async () => {
+            const query = tag.getAttribute("data-msg");
+            appendMessage("user", query);
+            await handleSubmission(query);
+        });
+    });
 }
 
 // Event: Submit Chat Form
@@ -466,7 +603,6 @@ function startVoiceAutoSend(text) {
         }
     }, 500);
     
-    // Allow aborting auto-send if user starts typing or clicks inside input
     const abortAutoSend = () => {
         clearInterval(autoSendInterval);
         chatInput.disabled = false;
@@ -492,25 +628,8 @@ btnMicToggle.addEventListener("click", () => {
 
 // Event: Clear Conversation
 btnClearChat.addEventListener("click", () => {
-    chatHistory = [];
-    chatMessages.innerHTML = `
-        <div class="message model">
-            <div class="message-avatar">
-                <i class="fa-solid fa-robot"></i>
-            </div>
-            <div class="message-content">
-                <p>Chat cleared! Kahan se start karna hai batao? Kisi file ko study karna hai ya daily log updates ko?</p>
-            </div>
-        </div>
-    `;
-    activeTopicName.innerText = "No Active Topic";
+    initializeChat();
 });
 
-// Event: Suggestion Tag Clicks
-suggestionTags.forEach(tag => {
-    tag.addEventListener("click", async () => {
-        const query = tag.getAttribute("data-msg");
-        appendMessage("user", query);
-        await handleSubmission(query);
-    });
-});
+// Run greeting on page load
+initializeChat();
