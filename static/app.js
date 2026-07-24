@@ -57,7 +57,7 @@ function showLoadingIndicator() {
 
     const contentDiv = document.createElement("div");
     contentDiv.classList.add("message-content");
-    contentDiv.innerHTML = `<p style="color: var(--text-muted);"><i class="fa-solid fa-circle-notch fa-spin"></i> Agent 1 is typing...</p>`;
+    contentDiv.innerHTML = `<p style="color: var(--text-muted);"><i class="fa-solid fa-circle-notch fa-spin"></i> Jarvus is typing...</p>`;
 
     loadingDiv.appendChild(avatarDiv);
     loadingDiv.appendChild(contentDiv);
