@@ -1,14 +1,24 @@
 {
   "manifest_version": 3,
   "name": "Jarvus - Personal GitHub Coach",
-  "version": "1.0",
+  "version": "1.1",
   "description": "Integrates Jarvus directly into github.com to teach and explain code.",
+  "permissions": [
+    "sidePanel",
+    "activeTab",
+    "tabs"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
   "content_scripts": [
     {
       "matches": ["https://github.com/*"],
       "js": ["content.js"],
       "css": ["styles.css"]
     }
-  ],
-  "permissions": []
+  ]
 }

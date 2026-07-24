@@ -6,9 +6,6 @@
     root.id = "jarvus-extension-root";
     document.body.appendChild(root);
 
-    // Default server address
-    let serverUrl = localStorage.getItem("jarvus_server_url") || "http://127.0.0.1:8085";
-
     // 1. Create floating button
     const floatBtn = document.createElement("button");
     floatBtn.className = "jarvus-float-btn";
@@ -29,85 +26,9 @@
     `;
     root.appendChild(floatBtn);
 
-    // 2. Create sliding chat panel
-    const panel = document.createElement("div");
-    panel.className = "jarvus-chat-panel";
-    panel.innerHTML = `
-        <div class="jarvus-panel-header">
-            <div class="jarvus-header-top">
-                <h3>🤖 Jarvus Assistant</h3>
-                <button class="jarvus-close-btn">&times;</button>
-            </div>
-            <div class="jarvus-settings-row">
-                <input type="text" id="jarvus-server-input" value="${serverUrl}" placeholder="Jarvus Server URL" />
-                <button id="jarvus-save-server-btn">Save</button>
-            </div>
-        </div>
-        <div class="jarvus-iframe-container">
-            <iframe id="jarvus-chat-iframe" src="${serverUrl}"></iframe>
-        </div>
-    `;
-    root.appendChild(panel);
-
-    const iframe = panel.querySelector("#jarvus-chat-iframe");
-    const serverInput = panel.querySelector("#jarvus-server-input");
-    const saveBtn = panel.querySelector("#jarvus-save-server-btn");
-    const closeBtn = panel.querySelector(".jarvus-close-btn");
-
-    // Close action
-    closeBtn.addEventListener("click", () => {
-        panel.classList.remove("open");
-    });
-
-    // Toggle panel
+    // Trigger native sidepanel on button click
     floatBtn.addEventListener("click", () => {
-        panel.classList.toggle("open");
-        if (panel.classList.contains("open")) {
-            sendGithubContext();
-        }
+        chrome.runtime.sendMessage({ action: "open_sidepanel" });
     });
-
-    // Save server URL settings
-    saveBtn.addEventListener("click", () => {
-        const value = serverInput.value.trim();
-        if (value) {
-            serverUrl = value;
-            localStorage.setItem("jarvus_server_url", serverUrl);
-            iframe.src = serverUrl;
-            alert("Jarvus server address updated!");
-        }
-    });
-
-    // Context extractor: Read current open GitHub code page
-    function sendGithubContext() {
-        const url = window.location.href;
-        // Match github.com/username/repo/blob/branch/file_path
-        const match = url.match(/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/);
-        
-        if (match) {
-            const username = match[1];
-            const repo = match[2];
-            const filePath = match[4];
-            
-            // Send event to iframe
-            iframe.contentWindow.postMessage({
-                action: "current_file",
-                repo: repo,
-                path: filePath,
-                username: username
-            }, "*");
-        }
-    }
-
-    // Monitor URL routing changes in SPA environment
-    let lastUrl = window.location.href;
-    setInterval(() => {
-        if (window.location.href !== lastUrl) {
-            lastUrl = window.location.href;
-            if (panel.classList.contains("open")) {
-                sendGithubContext();
-            }
-        }
-    }, 1000);
 
 })();
