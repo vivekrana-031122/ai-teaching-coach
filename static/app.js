@@ -475,7 +475,7 @@ async function initializeChat() {
     chatHistory = [];
     chatMessages.innerHTML = "";
     
-    const ownerToken = localStorage.getItem("jarvus_session_token");
+    let ownerToken = localStorage.getItem("jarvus_session_token");
     if (ownerToken) {
         try {
             const response = await fetch("/api/verify-session", {
@@ -485,14 +485,24 @@ async function initializeChat() {
                 }
             });
             if (response.ok) {
-                // Owner greeting
-                appendMessage("model", "Hey Vivek! Kaisa hai? Main tera personal teaching coach **Jarvus** hoon. Hum tere projects ke codes aur daily logs ko step-by-step seekhenge. Tu **'Teach Today's Update'** button par click kar sakta hai ya koi file load karke bol: *'Teach me this!'*");
+                // Owner greeting - greet Vivek in Hinglish
+                appendMessage("model", "Kya haal hai Vivek! Aaj kya karna hai?");
                 activeTopicName.innerText = "No Active Topic";
                 updateSuggestionsForOwner();
                 return;
             }
         } catch (e) {
             console.error("Owner session validation failed:", e);
+        }
+    }
+    
+    // Prompt for passcode to unlock Owner Mode
+    const passcode = prompt("Enter Jarvus Passcode to unlock Owner Mode (Cancel for Public Mode):");
+    if (passcode) {
+        const token = await loginWithPasscode(passcode);
+        if (token) {
+            // loginWithPasscode calls initializeChat() on success, which will re-run and show the Vivek greeting
+            return;
         }
     }
     
