@@ -47,6 +47,16 @@ async def get_current_user_role(x_session_token: Optional[str] = Header(None)) -
         return "public"
     return "owner"
 
+async def verify_session(x_session_token: Optional[str] = Header(None)) -> str:
+    if not x_session_token:
+        raise HTTPException(status_code=401, detail="Session token required.")
+    exp_time = ACTIVE_SESSIONS.get(x_session_token)
+    if not exp_time or time.time() > exp_time:
+        if x_session_token in ACTIVE_SESSIONS:
+            del ACTIVE_SESSIONS[x_session_token]
+        raise HTTPException(status_code=401, detail="Session expired or invalid.")
+    return x_session_token
+
 class LoginRequest(BaseModel):
     passcode: str
 
@@ -227,43 +237,87 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest, role: str = Dep
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
         
     client_host = request.headers.get("host", "127.0.0.1:8085")
+    session_token = request.headers.get("X-Session-Token") or "default_visitor"
     
-    # 1. Setup system instructions and context injections based on role
-    sys_instruction = OWNER_SYSTEM_INSTRUCTION if role == "owner" else PUBLIC_SYSTEM_INSTRUCTION
-    user_msg = chat_req.message
-    
+    # Decouple authentication/role checking token from conversation identity thread_id
     if role == "owner":
-        # Handle dynamic reporting requests
-        lower_msg = user_msg.lower()
-        if any(x in lower_msg for x in ["report", "progress", "update", "kya report", "what's the progress"]):
-            status_report = await generate_live_status_report()
-            user_msg += f"\n\n[System Context - Realtime Live Data]:\n{status_report}"
-            
-        # Handle security logs query
-        if any(x in lower_msg for x in ["access", "try", "security", "log", "koi try किया"]):
-            log_str = "\n".join(ACCESS_LOGS) if ACCESS_LOGS else "No security logs recorded yet."
-            user_msg += f"\n\n[System Context - Access Logs]:\n{log_str}"
-            
+        thread_id = "owner_main"
+    else:
+        thread_id = session_token # Stable guest session token
+        
+    config = {"configurable": {"thread_id": thread_id}}
+    
     try:
-        # Load the Gemini Model
-        model = genai.GenerativeModel(
-            model_name="gemini-flash-latest",
-            system_instruction=sys_instruction
-        )
+        from agent_graph import jarvus_graph
         
-        # Convert history format
-        gemini_history = []
-        for msg in chat_req.history:
-            gemini_history.append({
-                "role": msg.role,
-                "parts": msg.parts
-            })
+        # 1. Fetch current conversational state snapshot from SQLite
+        state_snapshot = jarvus_graph.get_state(config)
+        state = state_snapshot.values if state_snapshot.values else {}
+        
+        # Initialize session state if not found in database
+        if not state:
+            state = {
+                "messages": [],
+                "file_content": None,
+                "file_path": None,
+                "repo_name": None,
+                "current_chunk_idx": 0,
+                "chunks": [],
+                "user_role": role,
+                "verification_success": True,
+                "error_msg": None,
+                "selected_language": chat_req.language,
+                "current_response": None,
+                "confusion_count": 0,
+                "access_token": session_token,
+                "next_node": "identify_user"
+            }
             
-        chat = model.start_chat(history=gemini_history)
-        response = chat.send_message(user_msg)
-        resp_text = response.text
+        state["user_role"] = role
+        user_msg = chat_req.message
         
-        # 2. Intercept Gatekeeper request tags in Public Visitor mode
+        # Check for live status reports or security logs if owner asks
+        if role == "owner":
+            lower_msg = user_msg.lower()
+            if any(x in lower_msg for x in ["report", "progress", "update", "kya report", "what's the progress"]):
+                status_report = await generate_live_status_report()
+                user_msg += f"\n\n[System Context - Realtime Live Data]:\n{status_report}"
+                
+            if any(x in lower_msg for x in ["access", "try", "security", "log", "koi try किया"]):
+                log_str = "\n".join(ACCESS_LOGS) if ACCESS_LOGS else "No security logs recorded yet."
+                user_msg += f"\n\n[System Context - Access Logs]:\n{log_str}"
+
+        # Router logic before invoking graph
+        # 1. Study requests
+        if "study detected file" in user_msg.lower() or "repo" in user_msg.lower() or "kholo" in user_msg.lower():
+            parsed = await parse_intent_endpoint(IntentRequest(text=user_msg), role=role)
+            if parsed.get("action") == "open_file" and parsed.get("file_path"):
+                state["repo_name"] = parsed.get("repo")
+                state["file_path"] = parsed.get("file_path")
+                state["next_node"] = "fetch_content"
+                
+        # 2. Understanding checks response
+        elif state.get("next_node") == "check_understanding":
+            lower_msg = user_msg.lower()
+            is_confused = any(x in lower_msg for x in ["nahi", "no", "confuse", "samajh nahi", "complex", "tough", "repeat", "samajh nahi aaya"])
+            is_understood = any(x in lower_msg for x in ["haan", "yes", "got it", "samajh gaya", "next", "clear", "shuru", "aage"])
+            
+            if is_confused:
+                state["next_node"] = "reexplain"
+            elif is_understood:
+                state["next_node"] = "next_chunk_or_recall"
+            else:
+                state["next_node"] = "next_chunk_or_recall"
+
+        # Push user message to state history
+        state["messages"].append({"role": "user", "parts": [user_msg]})
+
+        # Invoke Graph execution with the config containing thread_id
+        updated_state = jarvus_graph.invoke(state, config=config)
+        
+        resp_text = updated_state.get("current_response", "Aage kya karna hai bataiye?")
+        
+        # Intercept Gatekeeper request tags in Public Visitor mode
         if role == "public" and "[GATEKEEPER_TRIGGER:" in resp_text:
             match = re.search(r"\[GATEKEEPER_TRIGGER:\s*repo=([^,\s]+),\s*file=([^\]\s]+)\]", resp_text)
             repo = match.group(1) if match else "unknown-repo"
@@ -294,8 +348,8 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest, role: str = Dep
         return {"response": resp_text}
         
     except Exception as e:
-        print(f"Error in chat endpoint: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to communicate with Gemini: {str(e)}")
+        print(f"Error in chat endpoint graph run: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to communicate with Gemini Graph: {str(e)}")
 
 @app.post("/api/starter-log")
 async def fetch_starter_log(role: str = Depends(get_current_user_role)):

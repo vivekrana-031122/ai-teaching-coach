@@ -1,11 +1,21 @@
 // Application State
 let chatHistory = []; // Array of {role: "user"|"model", parts: [string]}
-let isVoiceMuted = true;
+let isVoiceMuted = false;
 let currentUtterance = null;
 let recognition = null;
 let isListening = false;
 let selectedLanguage = null;
 let approvalPollInterval = null;
+
+// Guest Session token helper
+function getOrCreateGuestToken() {
+    let guestToken = localStorage.getItem("jarvus_guest_token");
+    if (!guestToken) {
+        guestToken = "guest_" + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        localStorage.setItem("jarvus_guest_token", guestToken);
+    }
+    return guestToken;
+}
 
 // DOM Elements
 const chatMessages = document.getElementById("chat-messages");
@@ -177,13 +187,13 @@ async function sendChatMessage(userMessageText) {
     showLoadingIndicator();
     
     try {
-        const token = localStorage.getItem("jarvus_session_token"); // Pull silently
+        const token = localStorage.getItem("jarvus_session_token") || getOrCreateGuestToken();
         
         const response = await fetch("/api/chat", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                ...(token ? { "X-Session-Token": token } : {})
+                "X-Session-Token": token
             },
             body: JSON.stringify({
                 message: userMessageText,

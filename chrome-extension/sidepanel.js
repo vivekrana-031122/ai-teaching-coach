@@ -1,4 +1,4 @@
-let serverUrl = localStorage.getItem("jarvus_server_url") || "http://127.0.0.1:8085";
+let serverUrl = localStorage.getItem("jarvus_server_url") || "https://ai-teaching-coach.onrender.com";
 const iframe = document.getElementById("chat-frame");
 const urlInput = document.getElementById("server-url");
 const saveBtn = document.getElementById("save-btn");

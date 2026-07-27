@@ -20,5 +20,13 @@
       "js": ["content.js"],
       "css": ["styles.css"]
     }
-  ]
+  ],
+  "commands": {
+    "open_side_panel": {
+      "suggested_key": {
+        "default": "Alt+J"
+      },
+      "description": "Open Jarvus side panel"
+    }
+  }
 }

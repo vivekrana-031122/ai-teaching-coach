@@ -6,3 +6,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
     }
 });
+
+// Command listener for keyboard shortcuts (e.g. Alt+J)
+chrome.commands.onCommand.addListener((command) => {
+    if (command === "open_side_panel") {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0] && tabs[0].id) {
+                chrome.sidePanel.open({ tabId: tabs[0].id });
+            }
+        });
+    }
+});
