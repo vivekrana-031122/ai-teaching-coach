@@ -33,9 +33,9 @@ ACCESS_LOGS = []  # List of security event strings
 
 ACCESS_PASSCODE = os.getenv("ACCESS_PASSCODE")
 if not ACCESS_PASSCODE:
-    ACCESS_PASSCODE = "Dumbo@#03"
+    ACCESS_PASSCODE = secrets.token_hex(16)
     print("WARNING: ACCESS_PASSCODE environment variable is not set!")
-    print(f"Using default fallback passcode: {ACCESS_PASSCODE}")
+    print(f"Generated secure temporary passcode for this session: {ACCESS_PASSCODE}")
 
 async def get_current_user_role(x_session_token: Optional[str] = Header(None)) -> str:
     if not x_session_token:
