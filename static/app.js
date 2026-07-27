@@ -170,11 +170,32 @@ function speakText(text) {
 
     const utterance = new SpeechSynthesisUtterance(speakableText);
     
-    // Try to load Indian English voice lang or Hindi lang
+    // Prioritize high-quality neural or Google cloud voices for natural speaking cadence
     const voices = window.speechSynthesis.getVoices();
-    const voiceIN = voices.find(v => v.lang.includes("en-IN") || v.lang.includes("hi-IN"));
-    if (voiceIN) {
-        utterance.voice = voiceIN;
+    let selectedVoice = null;
+    
+    if (voices && voices.length > 0) {
+        // Priority 1: Edge Neural Natural Indian Voices
+        selectedVoice = voices.find(v => v.name.includes("Natural") && (v.lang.includes("en-IN") || v.lang.includes("hi-IN")));
+        
+        // Priority 2: Chrome Google Cloud Indian Voices (like Google हिन्दी or Google en-IN)
+        if (!selectedVoice) {
+            selectedVoice = voices.find(v => v.name.includes("Google") && (v.lang.includes("hi-IN") || v.lang.includes("en-IN")));
+        }
+        
+        // Priority 3: Chrome Google Cloud US/UK English (very natural fallback)
+        if (!selectedVoice) {
+            selectedVoice = voices.find(v => v.name.includes("Google") && v.lang.includes("en-"));
+        }
+        
+        // Priority 4: Standard local en-IN or hi-IN
+        if (!selectedVoice) {
+            selectedVoice = voices.find(v => v.lang.includes("en-IN") || v.lang.includes("hi-IN"));
+        }
+    }
+    
+    if (selectedVoice) {
+        utterance.voice = selectedVoice;
     }
     
     utterance.rate = 0.95; // Slightly slower, clean teaching cadence
