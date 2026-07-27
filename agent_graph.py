@@ -11,16 +11,13 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 db_url = os.getenv("DATABASE_URL")
 
 if db_url and db_url.startswith("postgres"):
-    print("[State Machine] Initializing Cloud PostgreSQL Checkpointer (Supabase)...")
-    from langgraph.checkpoint.postgres import PostgresSaver
-    
-    # Supabase Connection URI parser adjustment if using 'postgres://' (deprecated in newer libraries but common in cloud envs)
+    print("[State Machine] Cloud PostgreSQL Configured (Supabase)...")
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
-        
-    memory = PostgresSaver.from_conn_string(db_url)
-    # Automatically execute migrations to setup tables on startup
-    memory.setup()
+    
+    # We will instantiate inside the dynamic request or node block since from_conn_string is a generator,
+    # or define memory = None and initialize connection inside workflow compiler.
+    memory = None 
 else:
     print("[State Machine] Initializing Local SQLite Checkpointer...")
     db_conn = sqlite3.connect("checkpoints.sqlite", check_same_thread=False)
@@ -422,8 +419,12 @@ def compile_jarvus_graph():
         "report_error",
         lambda state: END
     )
-    
-    return workflow.compile(checkpointer=memory)
+    return workflow
 
-# Compile global graph instance
-jarvus_graph = compile_jarvus_graph()
+# Global compiled instance with loaded checkpointer (SQLite fallback or default)
+global_workflow = compile_jarvus_graph()
+
+def compile_workflow(checkpointer=None):
+    return global_workflow.compile(checkpointer=checkpointer)
+
+jarvus_graph = compile_workflow(memory)

@@ -139,6 +139,9 @@ class RepoFileRequest(BaseModel):
     repo: str
     path: str
 
+class IntentRequest(BaseModel):
+    text: str
+
 # Email Helper
 def send_approval_email(request_id: str, repo: str, file_path: str, token: str, host: str):
     sender_email = os.getenv("SMTP_USER")
@@ -227,6 +230,24 @@ async def generate_live_status_report() -> str:
         
     return report
 
+def parse_intent_endpoint_sync(request: IntentRequest, role: str) -> dict:
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(parse_intent_endpoint(request, role))
+
+def generate_live_status_report_sync() -> str:
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(generate_live_status_report())
+
 @app.post("/api/verify-session")
 async def verify_session_endpoint(session: None = Depends(verify_session)):
     return {"status": "valid"}
@@ -248,73 +269,88 @@ async def chat_endpoint(request: Request, chat_req: ChatRequest, role: str = Dep
     config = {"configurable": {"thread_id": thread_id}}
     
     try:
-        from agent_graph import jarvus_graph
+        from agent_graph import compile_workflow, db_url
         
-        # 1. Fetch current conversational state snapshot from SQLite
-        state_snapshot = jarvus_graph.get_state(config)
-        state = state_snapshot.values if state_snapshot.values else {}
-        
-        # Initialize session state if not found in database
-        if not state:
-            state = {
-                "messages": [],
-                "file_content": None,
-                "file_path": None,
-                "repo_name": None,
-                "current_chunk_idx": 0,
-                "chunks": [],
-                "user_role": role,
-                "verification_success": True,
-                "error_msg": None,
-                "selected_language": chat_req.language,
-                "current_response": None,
-                "confusion_count": 0,
-                "access_token": session_token,
-                "next_node": "identify_user"
-            }
+        # Helper to execute graph operation inside checkpointer connection context
+        def run_graph_with_saver(saver):
+            compiled_graph = compile_workflow(saver)
             
-        state["user_role"] = role
-        user_msg = chat_req.message
-        
-        # Check for live status reports or security logs if owner asks
-        if role == "owner":
-            lower_msg = user_msg.lower()
-            if any(x in lower_msg for x in ["report", "progress", "update", "kya report", "what's the progress"]):
-                status_report = await generate_live_status_report()
-                user_msg += f"\n\n[System Context - Realtime Live Data]:\n{status_report}"
-                
-            if any(x in lower_msg for x in ["access", "try", "security", "log", "koi try किया"]):
-                log_str = "\n".join(ACCESS_LOGS) if ACCESS_LOGS else "No security logs recorded yet."
-                user_msg += f"\n\n[System Context - Access Logs]:\n{log_str}"
-
-        # Router logic before invoking graph
-        # 1. Study requests
-        if "study detected file" in user_msg.lower() or "repo" in user_msg.lower() or "kholo" in user_msg.lower():
-            parsed = await parse_intent_endpoint(IntentRequest(text=user_msg), role=role)
-            if parsed.get("action") == "open_file" and parsed.get("file_path"):
-                state["repo_name"] = parsed.get("repo")
-                state["file_path"] = parsed.get("file_path")
-                state["next_node"] = "fetch_content"
-                
-        # 2. Understanding checks response
-        elif state.get("next_node") == "check_understanding":
-            lower_msg = user_msg.lower()
-            is_confused = any(x in lower_msg for x in ["nahi", "no", "confuse", "samajh nahi", "complex", "tough", "repeat", "samajh nahi aaya"])
-            is_understood = any(x in lower_msg for x in ["haan", "yes", "got it", "samajh gaya", "next", "clear", "shuru", "aage"])
+            # 1. Fetch current conversational state snapshot from database
+            state_snapshot = compiled_graph.get_state(config)
+            state = state_snapshot.values if state_snapshot.values else {}
             
-            if is_confused:
-                state["next_node"] = "reexplain"
-            elif is_understood:
-                state["next_node"] = "next_chunk_or_recall"
-            else:
-                state["next_node"] = "next_chunk_or_recall"
+            # Initialize session state if not found in database
+            if not state:
+                state = {
+                    "messages": [],
+                    "file_content": None,
+                    "file_path": None,
+                    "repo_name": None,
+                    "current_chunk_idx": 0,
+                    "chunks": [],
+                    "user_role": role,
+                    "verification_success": True,
+                    "error_msg": None,
+                    "selected_language": chat_req.language,
+                    "current_response": None,
+                    "confusion_count": 0,
+                    "access_token": session_token,
+                    "next_node": "identify_user"
+                }
+                
+            state["user_role"] = role
+            user_msg = chat_req.message
+            
+            # Check for live status reports or security logs if owner asks
+            if role == "owner":
+                lower_msg = user_msg.lower()
+                if any(x in lower_msg for x in ["report", "progress", "update", "kya report", "what's the progress"]):
+                    status_report = generate_live_status_report_sync()
+                    user_msg += f"\n\n[System Context - Realtime Live Data]:\n{status_report}"
+                    
+                if any(x in lower_msg for x in ["access", "try", "security", "log", "koi try किया"]):
+                    log_str = "\n".join(ACCESS_LOGS) if ACCESS_LOGS else "No security logs recorded yet."
+                    user_msg += f"\n\n[System Context - Access Logs]:\n{log_str}"
 
-        # Push user message to state history
-        state["messages"].append({"role": "user", "parts": [user_msg]})
+            # Router logic before invoking graph
+            # 1. Study requests
+            if "study detected file" in user_msg.lower() or "repo" in user_msg.lower() or "kholo" in user_msg.lower():
+                parsed = parse_intent_endpoint_sync(IntentRequest(text=user_msg), role=role)
+                if parsed.get("action") == "open_file" and parsed.get("file_path"):
+                    state["repo_name"] = parsed.get("repo")
+                    state["file_path"] = parsed.get("file_path")
+                    state["next_node"] = "fetch_content"
+                    
+            # 2. Understanding checks response
+            elif state.get("next_node") == "check_understanding":
+                lower_msg = user_msg.lower()
+                is_confused = any(x in lower_msg for x in ["nahi", "no", "confuse", "samajh nahi", "complex", "tough", "repeat", "samajh nahi aaya"])
+                is_understood = any(x in lower_msg for x in ["haan", "yes", "got it", "samajh gaya", "next", "clear", "shuru", "aage"])
+                
+                if is_confused:
+                    state["next_node"] = "reexplain"
+                elif is_understood:
+                    state["next_node"] = "next_chunk_or_recall"
+                else:
+                    state["next_node"] = "next_chunk_or_recall"
 
-        # Invoke Graph execution with the config containing thread_id
-        updated_state = jarvus_graph.invoke(state, config=config)
-        
+            # Push user message to state history
+            state["messages"].append({"role": "user", "parts": [user_msg]})
+            
+            # Invoke Graph execution with the config containing thread_id
+            updated_state = compiled_graph.invoke(state, config=config)
+            return updated_state
+
+        # Check if database is cloud postgres
+        if db_url and db_url.startswith("postgres"):
+            from langgraph.checkpoint.postgres import PostgresSaver
+            with PostgresSaver.from_conn_string(db_url) as saver:
+                saver.setup()
+                updated_state = run_graph_with_saver(saver)
+        else:
+            from agent_graph import memory
+            updated_state = run_graph_with_saver(memory)
+            
         resp_text = updated_state.get("current_response", "Aage kya karna hai bataiye?")
         
         # Intercept Gatekeeper request tags in Public Visitor mode
@@ -422,8 +458,7 @@ async def fetch_repo_file(request: RepoFileRequest, role: str = Depends(get_curr
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving file content: {str(e)}")
 
-class IntentRequest(BaseModel):
-    text: str
+# Intent Request Model definition is placed at the top
 
 @app.post("/api/parse-intent")
 async def parse_intent_endpoint(request: IntentRequest, role: str = Depends(get_current_user_role)):
