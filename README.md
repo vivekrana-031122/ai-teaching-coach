@@ -1,18 +1,23 @@
 # AI Teaching Coach ("Agent 1")
 
-AI Teaching Coach ("Agent 1") is an interactive, web-based study assistant designed to teach you code and daily engineering progress from your GitHub repositories and `LEARNING_LOG.md` entries. 
+[![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](#)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Tech: FastAPI](https://img.shields.io/badge/Tech-FastAPI-009688.svg?logo=fastapi&logoColor=white)](#)
+[![Tech: Gemini API](https://img.shields.io/badge/Tech-Gemini%20API-4285F4.svg?logo=google&logoColor=white)](#)
+[![Deployment: Docker](https://img.shields.io/badge/Deployment-Docker-2496ED.svg?logo=docker&logoColor=white)](#)
 
-Built using **FastAPI** on the backend and a modern glassmorphism chat interface on the frontend, the agent leverages the **Google Gemini API** to act as a highly patient, expert bilingual peer who explains concepts in fluid **Hinglish** (mixing Hindi and English) rather than formal textbook jargon.
+An interactive, web-based study peer assistant powered by the **Google Gemini API** and **FastAPI** that explains complex codebases and daily logs in conversational **Hinglish** (mixing Hindi and English).
 
 ---
 
-## 🛠️ Core Teaching Principles
-Agent 1 is programmed to follow strict educational guidelines:
-1.  **Natural Hinglish:** Explanations feel like a smart friend talking to you, not a translated dictionary.
-2.  **Line-by-Line Breakdown:** Code is analyzed in small, digestible chunks.
-3.  **Analogies Before Jargon:** Technical terms are introduced with simple real-world metaphors before introducing the formal vocabulary.
-4.  **Constant Understanding Checks:** Pauses after every block and asks simple questions (like *"samajh aaya?"*) to verify understanding before moving forward.
-5.  **Active Recall Close:** Every study session ends by prompting you to explain the core concept back in your own words.
+## 🧠 Core Teaching Principles
+
+Agent 1 is programmed to follow strict interactive educational guidelines:
+1.  **Conversational Hinglish:** Explanations feel like discussing code with a peer rather than reading dry textbooks.
+2.  **Granular Code Breakdown:** Parses long scripts into small, logical blocks before explaining them.
+3.  **Analogy-First Teaching:** Explains underlying computer science logic using everyday analogies before introducing technical jargon.
+4.  **Liveness Diagnostics ("Samajh Aaya?"):** Pauses after critical blocks to prompt verification checks before advancing.
+5.  **Active Recall Closing:** Concludes sessions by asking the student to explain the main takeaways back in their own words.
 
 ---
 
@@ -20,31 +25,33 @@ Agent 1 is programmed to follow strict educational guidelines:
 ```
 ai-teaching-coach/
 ├── static/
-│   ├── index.html     # Single-page Chat UI
-│   ├── style.css      # Dark mode styling (matching GitHub theme)
-│   └── app.js         # Frontend network logic & marked/prism configurations
-├── main.py            # FastAPI backend API & Gemini SDK integration
-├── requirements.txt   # Python dependencies
-├── Dockerfile         # Docker multi-stage configuration
-├── .gitignore         # File exclusions
-└── README.md          # Technical documentation
+│   ├── index.html     # Single-page Glassmorphism Chat UI
+│   ├── style.css      # Custom dark mode stylesheet (GitHub theme styled)
+│   └── app.js         # Fetch client, markdown parsing & syntax highlighting
+├── main.py            # FastAPI routing server & Gemini REST integration
+├── agent_graph.py     # State graph implementation for chat transitions
+├── requirements.txt   # Core Python libraries
+├── Dockerfile         # Multi-stage production container build
+├── LICENSE            # MIT License file
+└── README.md          # Project documentation
 ```
 
 ---
 
-## 💻 Local Setup & Execution
+## 📦 Local Setup & Execution
 
 ### 1. Prerequisites
-*   Python 3.11+ installed.
+*   Python 3.11+
 *   A Google Gemini API key from **[Google AI Studio](https://aistudio.google.com/)**.
 
 ### 2. Installation Steps
-1.  Clone the repository:
+1.  **Clone the Repository:**
     ```bash
     git clone https://github.com/vivekrana-031122/ai-teaching-coach.git
     cd ai-teaching-coach
     ```
-2.  Create a virtual environment:
+
+2.  **Set Up Virtual Environment:**
     ```bash
     python -m venv .venv
     # Windows:
@@ -52,33 +59,42 @@ ai-teaching-coach/
     # macOS/Linux:
     source .venv/bin/activate
     ```
-3.  Install dependencies:
+
+3.  **Install Dependencies:**
     ```bash
     pip install -r requirements.txt
     ```
-4.  Create and configure your `.env` file:
+
+4.  **Configure API Keys:**
+    Copy the environment template and insert your key:
     ```bash
     cp .env.example .env
     ```
-    Open `.env` and paste your Gemini API key:
+    Open `.env` and configure:
     ```env
-    GEMINI_API_KEY=AIzaSy...
+    GEMINI_API_KEY=AIzaSyYourGeminiApiKeyHere
     ```
-5.  Start the FastAPI server:
+
+5.  **Launch FastAPI Server:**
     ```bash
     python -m uvicorn main:app --reload
     ```
-6.  Open your browser and navigate to **`http://127.0.0.1:8000`** to start chatting with Agent 1!
+    Open **`http://127.0.0.1:8000`** in your browser to start.
 
 ---
 
-## 🚀 Deployment to Render (Docker)
-This repository is configured with a Dockerfile for one-click deployment:
+## 🚀 Docker Container Deployment
 
-1.  Create a new Web Service on **[Render](https://dashboard.render.com)**.
-2.  Connect your `ai-teaching-coach` GitHub repository.
-3.  Set the **Runtime** to **`Docker`**.
-4.  Add an environment variable in Render settings:
-    *   **Key:** `GEMINI_API_KEY`
-    *   **Value:** *(Your Gemini API Key)*
-5.  Click **Deploy Web Service**. Render will build the container and output a public URL!
+Deploy using the pre-configured Docker setup (e.g. to Render, AWS, or GCP):
+
+1.  Connect your GitHub repository to your cloud container service.
+2.  Set runtime environment type to **Docker**.
+3.  Expose port `8000`.
+4.  Add environment variable `GEMINI_API_KEY` to variables panel.
+5.  Build and deploy the service.
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
